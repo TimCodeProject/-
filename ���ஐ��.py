@@ -271,6 +271,40 @@ def index():
             font-size: 0.9em;
         }
         
+        .camera-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .camera-content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 90%;
+            max-height: 90%;
+        }
+        
+        #cameraPreview {
+            max-width: 100%;
+            max-height: 60vh;
+            margin-bottom: 15px;
+        }
+        
+        .camera-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -287,12 +321,16 @@ def index():
         
         <div class="main-content">
             <section class="drawing-section">
-                <h2>Нарисуйте животное</h2>
+                <h2>Нарисуйте или загрузите животное</h2>
                 <div class="canvas-tools">
                     <button id="clearBtn">Очистить</button>
                     <button id="undoBtn">Отменить</button>
                     <input type="color" id="colorPicker" value="#006064">
                     <input type="range" id="brushSize" min="1" max="20" value="5">
+                    <button id="cameraBtn">Камера</button>
+                    <button id="uploadBtn">Загрузить</button>
+                    <button id="saveImageBtn">Сохранить</button>
+                    <input type="file" id="fileInput" accept="image/*" style="display:none">
                 </div>
                 <div class="canvas-container">
                     <canvas id="drawingCanvas" width="500" height="400"></canvas>
@@ -318,6 +356,18 @@ def index():
                     <div id="analysisResult"></div>
                 </div>
             </section>
+        </div>
+        
+        <!-- Модальное окно камеры -->
+        <div class="camera-modal" id="cameraModal">
+            <div class="camera-content">
+                <video id="cameraPreview" autoplay playsinline></video>
+                <div class="camera-buttons">
+                    <button id="captureBtn">Сделать снимок</button>
+                    <button id="cancelCameraBtn">Отмена</button>
+                </div>
+                <canvas id="cameraCanvas" style="display:none;"></canvas>
+            </div>
         </div>
         
         <footer>
@@ -349,6 +399,18 @@ def index():
             const loadingIndicator = document.getElementById('loadingIndicator');
             const resultContainer = document.getElementById('resultContainer');
             const analysisResult = document.getElementById('analysisResult');
+            const cameraBtn = document.getElementById('cameraBtn');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const fileInput = document.getElementById('fileInput');
+            const saveImageBtn = document.getElementById('saveImageBtn');
+            const cameraModal = document.getElementById('cameraModal');
+            const cameraPreview = document.getElementById('cameraPreview');
+            const captureBtn = document.getElementById('captureBtn');
+            const cancelCameraBtn = document.getElementById('cancelCameraBtn');
+            const cameraCanvas = document.getElementById('cameraCanvas');
+            
+            // Переменные для работы с камерой
+            let stream = null;
             
             // Адаптация canvas под размер экрана
             function resizeCanvas() {
@@ -475,6 +537,87 @@ def index():
                 currentBrushSize = this.value;
             });
             
+            // Загрузка изображения
+            uploadBtn.addEventListener('click', function() {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', function(e) {
+                if (e.target.files && e.target.files[0]) {
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(event) {
+                        const img = new Image();
+                        img.onload = function() {
+                            // Сохраняем текущее состояние
+                            saveCanvasState();
+                            
+                            // Очищаем холст и рисуем новое изображение
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        };
+                        img.src = event.target.result;
+                    };
+                    
+                    reader.readAsDataURL(e.target.files[0]);
+                }
+            });
+            
+            // Работа с камерой
+            cameraBtn.addEventListener('click', function() {
+                cameraModal.style.display = 'flex';
+                
+                // Запрашиваем доступ к камере
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(function(s) {
+                        stream = s;
+                        cameraPreview.srcObject = stream;
+                    })
+                    .catch(function(err) {
+                        console.error("Ошибка доступа к камере: ", err);
+                        alert("Не удалось получить доступ к камере. Пожалуйста, проверьте разрешения.");
+                        cameraModal.style.display = 'none';
+                    });
+            });
+            
+            // Снимок с камеры
+            captureBtn.addEventListener('click', function() {
+                if (stream) {
+                    // Создаем временный canvas для снимка
+                    cameraCanvas.width = cameraPreview.videoWidth;
+                    cameraCanvas.height = cameraPreview.videoHeight;
+                    const context = cameraCanvas.getContext('2d');
+                    context.drawImage(cameraPreview, 0, 0, cameraCanvas.width, cameraCanvas.height);
+                    
+                    // Закрываем камеру
+                    stream.getTracks().forEach(track => track.stop());
+                    cameraModal.style.display = 'none';
+                    
+                    // Сохраняем снимок на основном холсте
+                    const img = new Image();
+                    img.onload = function() {
+                        saveCanvasState();
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    };
+                    img.src = cameraCanvas.toDataURL();
+                }
+            });
+            
+            // Отмена съемки
+            cancelCameraBtn.addEventListener('click', function() {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                cameraModal.style.display = 'none';
+            });
+            
+            // Сохранение изображения (для использования в программе)
+            saveImageBtn.addEventListener('click', function() {
+                saveCanvasState();
+                alert("Изображение сохранено для анализа!");
+            });
+            
             // Анализ рисунка
             analyzeBtn.addEventListener('click', function() {
                 const name = document.getElementById('animalName').value.trim();
@@ -487,7 +630,7 @@ def index():
                 
                 const isEmpty = !canvas.toDataURL().replace(canvas.toDataURL('image/png', 0.1).split(',')[1], '');
                 if (isEmpty) {
-                    alert('Пожалуйста, нарисуйте животное перед анализом');
+                    alert('Пожалуйста, нарисуйте или загрузите животное перед анализом');
                     return;
                 }
                 
